@@ -1,0 +1,93 @@
+---
+title: "MINIDB: B+ TREES, WAL AND 2PL FROM THE PAGE UP"
+description: "Building a relational database engine in C++ from the storage manager up — page layout, B+ tree indexes, a hand-written SQL parser, and how write-ahead logging actually earns crash safety."
+date: "2026-07-01"
+tags: ["Databases", "C++", "Systems"]
+kanji: "基盤"
+accent: "blaze"
+---
+
+There is a specific kind of understanding you only get by writing a database, not by using one: the moment a B+ tree split has to also update the parent's key *and* keep every reader mid-traversal from seeing a torn structure. MiniDB is a relational engine built from the page up in C++ — no storage or parsing libraries borrowed — specifically to force that understanding.
+
+## Everything is a page
+
+The storage manager doesn't know about rows, indexes, or tables. It knows about fixed-size pages — 4KB, matching the OS page size so a page fault and a database page fault are the same event — and hands them out through a buffer pool:
+
+```cpp
+class BufferPool {
+public:
+    Page* fetch(PageId id) {
+        if (auto* p = resident_.find(id)) {
+            p->pin_count++;
+            return p;
+        }
+        Page* victim = evict();          // clock-sweep eviction
+        if (victim->is_dirty) flush(victim);
+        load_from_disk(id, victim);
+        resident_.insert(id, victim);
+        return victim;
+    }
+private:
+    Page* evict();  // returns an unpinned page, clock-sweep policy
+    std::unordered_map<PageId, Page*> resident_;
+};
+```
+
+Every structure above this — B+ tree nodes, the catalog, WAL segments — is just a particular interpretation of bytes inside a page. That separation is what let the B+ tree implementation stay ignorant of disk I/O entirely; it only ever asks the buffer pool for a page by ID.
+
+## B+ tree splits, and the invariant that has to hold
+
+A leaf split has to do three things atomically from the reader's point of view: allocate a new leaf, redistribute keys, and insert a separator key into the parent. Get the ordering wrong and a concurrent reader can walk into a node that's been split but whose parent doesn't know yet.
+
+```cpp
+void BPlusTree::split_leaf(LeafNode* leaf) {
+    auto* new_leaf = alloc_leaf();
+    size_t mid = leaf->key_count() / 2;
+
+    new_leaf->adopt_from(leaf, mid);          // move upper half
+    new_leaf->next = leaf->next;
+    leaf->next = new_leaf->page_id;
+
+    Key separator = new_leaf->first_key();
+    insert_into_parent(leaf, separator, new_leaf);  // may recurse upward
+}
+```
+
+`insert_into_parent` can itself trigger a parent split, recursing up to a new root — the one case where tree height grows. Latching leaf and parent together for the duration of that recursion (rather than releasing the leaf latch early) is what keeps a concurrent range scan from ever observing the intermediate state.
+
+## Write-ahead logging: the part that actually earns "crash-safe"
+
+WAL is often described as "log before you write," which is true but not the interesting part. The interesting part is the ordering guarantee that makes recovery correct: a page can only be flushed to disk *after* the log record describing its change is durably on disk — the write-ahead rule, not just a write-ahead *habit*.
+
+```cpp
+LSN WalManager::append(const LogRecord& rec) {
+    LSN lsn = next_lsn_.fetch_add(1);
+    buffer_.write(lsn, rec);
+    if (buffer_.should_flush()) fsync_to_disk();
+    return lsn;
+}
+
+void BufferPool::flush(Page* page) {
+    assert(page->page_lsn <= wal_->durable_lsn());  // WAL rule, enforced
+    write_to_disk(page);
+}
+```
+
+That `assert` is doing real work — it's the difference between a WAL that's decorative and one that actually guarantees recovery. On crash, recovery replays every log record after the last checkpoint (redo), then rolls back any transaction that never committed (undo), using the log itself to reconstruct which pages were left inconsistent.
+
+## Two-phase locking, and where it actually bites
+
+2PL gives serializability by splitting every transaction into a growing phase (only acquire locks) and a shrinking phase (only release them, all at commit/abort). The rule is simple to state and easy to get subtly wrong in the deadlock path:
+
+> The engine detects deadlock with a wait-for graph, not a timeout. A timeout-based approach either aborts transactions that would have resolved fine, or lets a real deadlock sit for the full timeout window before doing anything about it — a wait-for graph catches the cycle the instant it forms.
+
+| Component | Approach |
+| --- | --- |
+| Storage | 4KB pages, buffer pool with clock-sweep eviction |
+| Indexing | B+ trees, latch-coupled splits |
+| Query layer | Hand-written recursive-descent SQL parser |
+| Optimizer | Cost-based, cardinality estimates from page-level stats |
+| Concurrency | Two-phase locking, wait-for-graph deadlock detection |
+| Durability | Write-ahead log, checkpoint + redo/undo recovery |
+
+None of these pieces are novel research — they're the textbook design, deliberately. The goal was never to out-engineer Postgres; it was to have written, by hand, every mechanism that Postgres gets to assume.

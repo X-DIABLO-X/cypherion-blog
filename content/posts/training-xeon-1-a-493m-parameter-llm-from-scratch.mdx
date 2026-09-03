@@ -1,0 +1,71 @@
+---
+title: "XEON-1: TRAINING A LANGUAGE MODEL FROM ABSOLUTE ZERO"
+description: "No fine-tuning, no borrowed weights. Notes on designing, sharding and training a 493M-parameter decoder from a blank file to a working checkpoint on TPU v5e-8."
+date: "2026-08-20"
+tags: ["Machine Learning", "LLM", "TPU"]
+kanji: "言語"
+accent: "blade"
+---
+
+Most "build your own LLM" write-ups start from a Hugging Face checkpoint and call it done at the fine-tuning step. Xeon-1 doesn't start there. It starts from an empty Python file, a TPU v5e-8 pod, and a decision to write every piece of the forward pass myself before I let myself borrow a single weight.
+
+That decision costs time. It also means every number in this post is something I can explain, not something I inherited.
+
+## Why 493M, and why this shape
+
+The budget was TPU hours, not parameters. At 493M parameters — 24 decoder blocks, embedding width 1,280 — the model fits comfortably in the memory of a single v5e chip with room left for activations, which meant I could get the *sharding* right before I ever reached for more chips. Scaling a broken sharding strategy just gets you a broken strategy that costs more.
+
+The architecture choices, in order of how much they mattered:
+
+- **Grouped-query attention** — 20 query heads over 5 key/value heads. Full multi-head attention was memory-bound during generation; GQA cut the KV cache to a quarter of its size for a measurable but small quality cost.
+- **RoPE** instead of learned positional embeddings, so the model generalises past its 1,024-token training context instead of hard-failing at the boundary.
+- **Pre-norm RMSNorm** over LayerNorm — one fewer reduction per block, and it kept training stable at bf16 without a loss-scaling dance.
+- **SwiGLU** feed-forward, projecting 1,280 → 3,840. The gated activation earns its extra parameter over a matmul against a plain GELU MLP at equal FLOPs.
+- A **tied output embedding** over a 32k vocabulary — halves the embedding parameter count for free.
+
+## The RoPE implementation that actually shipped
+
+Position encoding is the piece most tutorials wave hands at. Here's the rotation applied to each query/key pair, precomputed once and cached rather than recomputed per forward pass:
+
+```python
+def apply_rope(x, freqs_cis):
+    # x: [batch, heads, seq, head_dim]
+    x_complex = x.float().reshape(*x.shape[:-1], -1, 2)
+    x_complex = torch.view_as_complex(x_complex)
+    freqs_cis = freqs_cis.unsqueeze(0).unsqueeze(0)
+    x_rotated = x_complex * freqs_cis
+    x_out = torch.view_as_real(x_rotated).flatten(-2)
+    return x_out.type_as(x)
+```
+
+The complex-number formulation is the same rotation as the sin/cos pair form, but it's the version that didn't silently break under bf16 rounding during a 40-hour run — worth knowing before you're 30 hours into a checkpoint that's quietly diverging.
+
+## SPMD sharding, not pipeline parallelism
+
+With one host and eight chips, pipeline parallelism buys nothing — there's no second host to overlap with. Instead the whole model runs under single-program-multiple-data sharding: the same program executes on every chip, and JAX's `pjit` + a `Mesh` decide how each tensor is split.
+
+```python
+mesh = Mesh(mesh_utils.create_device_mesh((8,)), ("data",))
+
+sharding = NamedSharding(mesh, PartitionSpec("data", None))
+params = jax.tree_util.tree_map(
+    lambda p: jax.device_put(p, sharding), params
+)
+```
+
+Data-parallel sharding across all eight chips, full replication of parameters — for 493M parameters that's the right trade. Model-parallel sharding only starts paying for itself once a single layer stops fitting in one chip's memory, which at this size it doesn't.
+
+> The failure mode that cost the most debugging time wasn't the math — it was a `PartitionSpec` mismatch between the optimizer state and the parameters after a checkpoint restore. JAX doesn't always fail loudly; it just silently re-shards, and your throughput drops 40% for a reason that looks nothing like sharding.
+
+## Training numbers
+
+| Setting | Value |
+| --- | --- |
+| Parameters | 493M |
+| Context length | 1,024 tokens |
+| Vocabulary | 32,000 (SentencePiece) |
+| Hardware | TPU v5e-8, SPMD |
+| Precision | bfloat16 compute, fp32 master weights |
+| Optimizer | AdamW, cosine decay, linear warmup |
+
+Xeon-2 is next: same lineage, scaling to 1B parameters with a wider stack, a longer context window and a training pipeline rebuilt around better data curation. That one's still in training — more on it once it has something worth reporting.

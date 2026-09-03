@@ -1,0 +1,68 @@
+---
+title: "INSIDE HLS-ENGINE: A FAIL-CLOSED VIDEO PIPELINE"
+description: "Go gateway, RabbitMQ, GPU transcoding with a CPU fallback, sharded MinIO storage, and a custom hls.js player — how every upload turns into adaptive-bitrate HLS without a managed platform in sight."
+date: "2026-08-05"
+tags: ["Infrastructure", "Video", "Systems"]
+kanji: "配信"
+accent: "blaze"
+---
+
+Every managed video platform sells you the same promise: upload a file, get back adaptive-bitrate streaming. HLS-Engine makes that same promise on infrastructure I own — a Go gateway, a Python/Celery/FFmpeg transcoding pipeline, sharded MinIO storage, and an Nginx CDN edge — because "fail-closed" was a requirement, not a nice-to-have: if a stage of the pipeline breaks, the upload should stop and say so, not silently serve a broken manifest.
+
+## The shape of the pipeline
+
+```
+upload → auth/metadata (Go) → RabbitMQ → transcode (Python/Celery/FFmpeg)
+       → sharded MinIO → Nginx CDN edge → hls.js player
+```
+
+Four services, one message bus. The Go services handle everything that needs to be fast and typed: auth, upload validation, metadata. The transcoding worker pool is Python because FFmpeg's ecosystem — and Celery's retry/dead-letter semantics — are better there than anything I'd hand-roll in Go.
+
+## GPU first, CPU as a real fallback
+
+NVENC transcoding is roughly 6-8x faster than a CPU x264 pass at comparable quality for the ladder we serve. But a GPU-only pipeline means a GPU outage takes down uploads, which fails the fail-closed requirement in the wrong direction — the system should degrade, not stop.
+
+```python
+def transcode(job: TranscodeJob) -> Rendition:
+    try:
+        return run_ffmpeg(job, encoder="h264_nvenc", preset="p4")
+    except NvencUnavailable:
+        logger.warning("nvenc unavailable, falling back to libx264 job=%s", job.id)
+        return run_ffmpeg(job, encoder="libx264", preset="veryfast")
+```
+
+The fallback isn't a try/except bolted on after the fact — `NvencUnavailable` is raised deliberately from a pre-flight check (`nvidia-smi` exit code, device node presence) before FFmpeg ever launches, so a bad GPU state fails fast instead of burning a transcode slot on a doomed process.
+
+## The adaptive-bitrate ladder
+
+Every upload gets re-encoded into a fixed ladder rather than a single rendition, with segment duration and keyframe interval locked together so ABR switching doesn't visibly stutter at the boundary:
+
+```bash
+ffmpeg -i input.mp4 \
+  -filter_complex "[0:v]split=4[v1][v2][v3][v4]; \
+    [v1]scale=w=1920:h=1080[v1out]; \
+    [v2]scale=w=1280:h=720[v2out]; \
+    [v3]scale=w=854:h=480[v3out]; \
+    [v4]scale=w=640:h=360[v4out]" \
+  -map "[v1out]" -c:v:0 h264_nvenc -b:v:0 5000k \
+  -map "[v2out]" -c:v:1 h264_nvenc -b:v:1 2800k \
+  -map "[v3out]" -c:v:2 h264_nvenc -b:v:2 1400k \
+  -map "[v4out]" -c:v:3 h264_nvenc -b:v:3 800k \
+  -g 48 -keyint_min 48 -sc_threshold 0 \
+  -f hls -hls_time 4 -hls_playlist_type vod \
+  -hls_segment_type mpegts \
+  -master_pl_name master.m3u8 \
+  -var_stream_map "v:0 v:1 v:2 v:3" \
+  out_%v/stream.m3u8
+```
+
+`-sc_threshold 0` matters more than it looks: without it, FFmpeg inserts scene-change keyframes wherever it wants, which desyncs segment boundaries across renditions and breaks clean ABR switching mid-segment.
+
+## Storage and the CDN edge
+
+Renditions land in sharded MinIO buckets — sharded by content hash prefix, not upload date, so a viral piece of content doesn't concentrate reads on one node. Nginx sits in front issuing signed, time-limited URLs; nothing serves directly from MinIO's own endpoint.
+
+- Multi-audio and subtitle tracks are muxed as separate HLS renditions referenced from the master playlist, not burned into the video.
+- The custom hls.js player wraps quality selection, audio-language switching and subtitle tracks behind one control surface, with a manual quality override for anyone whose network the ABR heuristic gets wrong.
+
+The fail-closed principle shows up again at the edge: a signed URL that fails validation returns a hard 403, not a redirect to a lower-quality fallback that might mask an actual auth bug.

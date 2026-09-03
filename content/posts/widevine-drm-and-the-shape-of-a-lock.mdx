@@ -1,0 +1,51 @@
+---
+title: "WHAT WIDEVINE TAUGHT ME ABOUT THE SHAPE OF A LOCK"
+description: "Notes from Widevine DRM analysis and HLS repackaging research — license negotiation, key handling, and why understanding a lock is a different skill from picking one."
+date: "2026-07-22"
+tags: ["Security", "DRM", "Research"]
+kanji: "解錠"
+accent: "blade"
+---
+
+I want to say upfront what this post is and isn't. This is research notes on how Widevine's licensing flow and content packaging actually work, written from analysing a real deployment. It is not a distribution tool, and the source that came out of this work stays private for exactly that reason — understanding a lock and publishing a key are different acts, and only one of them is defensible as research.
+
+## Why DRM is a systems problem, not a crypto problem
+
+The cryptography behind Widevine — AES-128 content keys, a license server issuing them under policy — is not the interesting part. It's well-documented, well-implemented, and not where the real engineering lives. The interesting part is everything *around* the crypto: how a license gets negotiated, what a client is trusted to enforce on its own, and where that trust boundary actually sits.
+
+That boundary is the whole system in miniature:
+
+1. The client requests a license, presenting a certificate that asserts its security level (software-only L3, or a hardware-backed L1).
+2. The license server responds with an encrypted key, plus a policy — can this be persisted, does it expire, what output protection does it require.
+3. Enforcement of that policy happens **client-side**, inside a CDM (Content Decryption Module) the server has to trust it's actually talking to.
+
+Step three is the whole ballgame. A server-issued policy is only as strong as the client's willingness to obey it — which is why L1 hardware-backed key handling exists at all: to move the trust boundary somewhere the client itself can't reach.
+
+## Repackaging: the unglamorous half of the pipeline
+
+The DRM analysis was one half of the project. The other half — repackaging a protected stream into a clean adaptive-bitrate HLS ladder with multi-audio and subtitle tracks intact — turned out to be the part with more edge cases per hour of work.
+
+A representative step in that pipeline, remuxing extracted segments with MP4Box while preserving track structure:
+
+```bash
+MP4Box -add video.m4v#trackID=1:name="Video" \
+       -add audio_jpn.m4a#trackID=1:name="Japanese" \
+       -add audio_eng.m4a#trackID=1:name="English" \
+       -add subs_eng.srt:name="English" \
+       -new output_packaged.mp4
+```
+
+The failure mode that ate the most time wasn't decryption — it was **timestamp drift** between independently-extracted audio and video segments after remuxing, which surfaces as audio sync that's perfect for the first ten minutes and steadily wrong after. The fix was forcing a shared presentation timestamp origin across every track before the mux step, not after:
+
+```python
+def normalize_pts(tracks: list[Track], epoch: int) -> None:
+    for track in tracks:
+        offset = track.first_pts - epoch
+        track.shift_pts(-offset)
+```
+
+Small function, expensive lesson: `first_pts` on an extracted track is not guaranteed to be zero, and assuming it is will pass every test on a five-minute sample and fail on anything long enough for drift to become audible.
+
+## What actually generalises
+
+Widevine is one DRM scheme, but the pattern — a trust boundary the server can't directly verify, enforced by a client under partial adversarial control — shows up everywhere: app attestation, hardware-backed key storage on mobile, even TLS client certificates in a zero-trust mesh. Understanding where that boundary actually sits, and what happens when you're on the wrong side of it, was the transferable part of this research.

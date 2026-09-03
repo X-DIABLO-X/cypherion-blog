@@ -1,0 +1,13 @@
+name = "cypherion-blog"
+compatibility_date = "2026-09-03"
+
+# Static export from `npm run build` (next.config.mjs sets output: "export").
+[assets]
+directory = "./out"
+not_found_handling = "404-page"
+
+# Custom domain. The zone `cypherion.tech` must already be on this Cloudflare
+# account; Workers creates the DNS record for the hostname itself.
+[[routes]]
+pattern = "blogs.cypherion.tech"
+custom_domain = true
