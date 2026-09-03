@@ -1,5 +1,8 @@
 name = "cypherion-blog"
 compatibility_date = "2026-09-03"
+# Pinned so CI (an API token, not an interactive `wrangler login`) never has
+# to guess which account to deploy into.
+account_id = "e8f348cff26e5c2853cafe8572386944"
 
 # Static export from `npm run build` (next.config.mjs sets output: "export").
 [assets]

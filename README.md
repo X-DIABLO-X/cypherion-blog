@@ -67,12 +67,29 @@ npm run build    # static site -> ./out, then scripts/postbuild.mjs writes
 
 Ships as a Cloudflare Worker serving static assets, same pattern as the portfolio's
 `wrangler.toml`, routed at the `blogs.cypherion.tech` custom domain (the `cypherion.tech`
-zone already lives on this Cloudflare account, so Workers provisions the DNS record
-itself on first deploy):
+zone already lives on this Cloudflare account, so Workers provisioned the DNS record
+itself on the first deploy).
 
-```bash
-npm run deploy    # build, then `wrangler deploy`
-```
+**Deploys happen automatically** — [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+builds and runs `wrangler deploy` on every push to `master`. Push an `.mdx` file and the
+live site updates a couple of minutes later; nothing to run locally.
+
+That workflow needs one repo secret:
+
+- `CLOUDFLARE_API_TOKEN` — a token scoped with the **Edit Cloudflare Workers** template
+  (dashboard → My Profile → API Tokens → Create Token), which covers deploying the
+  Worker and updating its custom-domain route. Add it with:
+
+  ```bash
+  gh secret set CLOUDFLARE_API_TOKEN --repo X-DIABLO-X/cypherion-blog
+  ```
+
+  or via the repo's Settings → Secrets and variables → Actions on github.com. The
+  account id is already pinned in `wrangler.toml` (not secret — just an identifier),
+  so CI never has to guess which account to deploy into.
+
+`npm run deploy` still works locally as a manual override (build, then `wrangler deploy`
+against whatever account `wrangler login` last authenticated).
 
 > Note: `next build` writes into `.next`, which a running `next dev` also owns — stop
 > the dev server before building.
