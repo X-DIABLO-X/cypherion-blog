@@ -68,7 +68,7 @@ export default async function BlogPost({
     <article>
       <ArticleHeader post={post} />
 
-      <div className="mx-auto grid max-w-[1200px] gap-12 px-4 pb-20 md:px-7 lg:grid-cols-[1fr_220px]">
+      <div className="mx-auto grid max-w-[1200px] gap-12 px-4 pb-20 pt-14 md:px-7 md:pt-20 lg:grid-cols-[1fr_220px]">
         <div id="article-content" className="min-w-0">
           <div className="prose-ink" dangerouslySetInnerHTML={{ __html: post.html }} />
           <CodeEnhancer scopeId="article-content" />

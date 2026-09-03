@@ -56,7 +56,9 @@ export default function BlogExplorer({
               className="w-full border-b-2 border-ink/25 bg-transparent py-2 pl-6 text-[13px] tracking-[0.05em] text-ink placeholder:text-ink/35 focus:border-blade focus:outline-none"
             />
             {query.length === 0 && (
-              <span className="caret pointer-events-none absolute bottom-2 left-6 h-4 w-[2px] bg-blade" />
+              // Centred on the input's text box rather than pinned to its
+              // bottom padding, so it lines up with the placeholder's x-height.
+              <span className="caret pointer-events-none absolute left-6 top-1/2 h-[13px] w-[2px] -translate-y-1/2 bg-blade" />
             )}
           </div>
         </div>
