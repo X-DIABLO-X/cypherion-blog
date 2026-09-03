@@ -5,6 +5,7 @@ date: "2026-08-05"
 tags: ["Infrastructure", "Video", "Systems"]
 kanji: "配信"
 accent: "blaze"
+cover: "/assets/cover-hls.webp"
 ---
 
 Every managed video platform sells you the same promise: upload a file, get back adaptive-bitrate streaming. HLS-Engine makes that same promise on infrastructure I own — a Go gateway, a Python/Celery/FFmpeg transcoding pipeline, sharded MinIO storage, and an Nginx CDN edge — because "fail-closed" was a requirement, not a nice-to-have: if a stage of the pipeline breaks, the upload should stop and say so, not silently serve a broken manifest.

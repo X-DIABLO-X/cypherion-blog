@@ -243,6 +243,14 @@ body {
   mix-blend-mode: screen;
 }
 
+/* The blog's art is drawn dark-on-black, and inverting it onto paper thins the
+   brushwork out to a washed-out sketch. So it keeps its own ink ground: every
+   panel that carries art sits on `--ink`, and only the surrounding page stays
+   paper. This is the contrast the covers were composed for. */
+.art-on-ink {
+  filter: contrast(1.07) saturate(1.06);
+}
+
 /* ---------- Custom cursor ---------- */
 
 @media (pointer: fine) {

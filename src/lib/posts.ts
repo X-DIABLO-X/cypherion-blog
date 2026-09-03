@@ -15,6 +15,7 @@ export type PostMeta = {
   tags: string[];
   kanji: string;
   accent: Accent;
+  cover: string;
   readingTime: number;
 };
 
@@ -59,6 +60,7 @@ export function getAllPosts(): PostMeta[] {
         tags: (data.tags as string[]) ?? [],
         kanji: (data.kanji as string) ?? "記",
         accent: (data.accent as Accent) ?? "blade",
+        cover: (data.cover as string) ?? "",
         readingTime: readingTimeFor(content),
       };
     })
@@ -80,6 +82,7 @@ export async function getPostBySlug(slug: string): Promise<Post | null> {
     tags: (data.tags as string[]) ?? [],
     kanji: (data.kanji as string) ?? "記",
     accent: (data.accent as Accent) ?? "blade",
+    cover: (data.cover as string) ?? "",
     readingTime: readingTimeFor(content),
     html,
     headings,

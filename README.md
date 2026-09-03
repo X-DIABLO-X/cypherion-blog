@@ -42,6 +42,27 @@ The filename becomes the slug (`/blog/your-slug/`). Reading time is computed fro
 word count — no field to fill in. `src/lib/posts.ts` and `src/lib/markdown.ts` are the
 only two files that touch content; nothing else needs to change to add a post.
 
+## Art
+
+Every illustration in `public/assets/` was generated to one house style — heavy brush
+ink, screentone shading, extreme contrast, a single electric-blue accent — matching the
+portfolio's art direction. All of it is landscape 3:2 (1536×1024), WebP, ~0.2–0.6 MB each.
+
+| File | Slot |
+| --- | --- |
+| `hero-desk.webp` | Masthead backdrop |
+| `cover-xeon.webp` | Xeon-1 entry |
+| `cover-hls.webp` | HLS-Engine entry |
+| `cover-drm.webp` | Widevine entry |
+| `cover-minidb.webp` | MiniDB entry |
+| `splash-divider.webp` | Ink-splash section transition |
+
+Unlike the portfolio's art (drawn light-on-paper, composited with `mix-blend-multiply`),
+this set is drawn **dark-on-black**. Inverting it onto paper thins the brushwork into a
+washed-out sketch, so instead every panel that carries art sits on an ink ground —
+the masthead, each card's cover, and the article header — and only the surrounding page
+stays paper. That is the contrast these covers were composed for (`.art-on-ink`).
+
 ## Structure
 
 - `content/posts/*.mdx` — the posts.

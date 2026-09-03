@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import PostCard from "./PostCard";
+import FeaturedPost from "./FeaturedPost";
 import type { PostMeta } from "@/lib/posts";
 
 export default function BlogExplorer({
@@ -28,21 +29,36 @@ export default function BlogExplorer({
     });
   }, [posts, query, activeTag]);
 
+  // The lead spread only makes sense on the unfiltered view — once someone is
+  // searching, every result should be weighted the same.
+  const isBrowsing = !query.trim() && !activeTag;
+  const featured = isBrowsing ? filtered[0] : null;
+  const rest = isBrowsing ? filtered.slice(1) : filtered;
+
   return (
-    <div id="entries" className="scroll-mt-24">
-      <div className="flex flex-col gap-4 border-b-2 border-ink pb-6 md:flex-row md:items-end md:justify-between">
-        <div className="relative w-full max-w-sm">
-          <span className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-ink/40">▣</span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="SEARCH THE LOG…"
-            aria-label="Search entries"
-            className="w-full border-b-2 border-ink/25 bg-transparent py-2 pl-6 text-[13px] tracking-[0.05em] text-ink placeholder:text-ink/35 focus:border-blade focus:outline-none"
-          />
-          {query.length === 0 && (
-            <span className="caret pointer-events-none absolute bottom-2 left-6 h-4 w-[2px] bg-blade" />
-          )}
+    <div id="entries" className="scroll-mt-20">
+      {featured && <FeaturedPost post={featured} />}
+
+      <div className="flex flex-col gap-5 border-b-2 border-ink pb-6 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h2 className="display text-3xl md:text-4xl">
+            {isBrowsing ? "ALL ENTRIES" : "RESULTS"}
+          </h2>
+          <div className="relative mt-4 w-full max-w-sm">
+            <span className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-ink/40">
+              ▣
+            </span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="SEARCH THE LOG…"
+              aria-label="Search entries"
+              className="w-full border-b-2 border-ink/25 bg-transparent py-2 pl-6 text-[13px] tracking-[0.05em] text-ink placeholder:text-ink/35 focus:border-blade focus:outline-none"
+            />
+            {query.length === 0 && (
+              <span className="caret pointer-events-none absolute bottom-2 left-6 h-4 w-[2px] bg-blade" />
+            )}
+          </div>
         </div>
 
         <ul className="flex flex-wrap gap-2">
@@ -50,7 +66,9 @@ export default function BlogExplorer({
             <button
               onClick={() => setActiveTag(null)}
               className={`tag transition-colors ${
-                activeTag === null ? "border-ink bg-ink text-paper" : "border-ink/30 text-ink/60 hover:border-ink"
+                activeTag === null
+                  ? "border-ink bg-ink text-paper"
+                  : "border-ink/30 text-ink/60 hover:border-ink"
               }`}
             >
               ALL
@@ -61,7 +79,9 @@ export default function BlogExplorer({
               <button
                 onClick={() => setActiveTag((t) => (t === tag ? null : tag))}
                 className={`tag transition-colors ${
-                  activeTag === tag ? "border-ink bg-ink text-paper" : "border-ink/30 text-ink/60 hover:border-ink"
+                  activeTag === tag
+                    ? "border-ink bg-ink text-paper"
+                    : "border-ink/30 text-ink/60 hover:border-ink"
                 }`}
               >
                 {tag} · {count}
@@ -85,8 +105,8 @@ export default function BlogExplorer({
       ) : (
         <motion.div layout className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <AnimatePresence mode="popLayout">
-            {filtered.map((post, i) => (
-              <PostCard key={post.slug} post={post} index={i} />
+            {rest.map((post, i) => (
+              <PostCard key={post.slug} post={post} index={isBrowsing ? i + 1 : i} />
             ))}
           </AnimatePresence>
         </motion.div>

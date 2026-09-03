@@ -27,7 +27,9 @@ export default function LogBubble() {
 
   return (
     <div
-      className="relative h-28 w-28 shrink-0 lg:h-36 lg:w-36"
+      // The bubble is always a paper circle, so it pins its own ink colour
+      // rather than inheriting the surrounding section's (the masthead is dark).
+      className="relative h-28 w-28 shrink-0 text-ink lg:h-36 lg:w-36"
       onPointerEnter={() => setHeld(true)}
       onPointerLeave={() => setHeld(false)}
     >

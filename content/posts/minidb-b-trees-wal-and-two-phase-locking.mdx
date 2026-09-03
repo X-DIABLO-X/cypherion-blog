@@ -5,6 +5,7 @@ date: "2026-07-01"
 tags: ["Databases", "C++", "Systems"]
 kanji: "基盤"
 accent: "blaze"
+cover: "/assets/cover-minidb.webp"
 ---
 
 There is a specific kind of understanding you only get by writing a database, not by using one: the moment a B+ tree split has to also update the parent's key *and* keep every reader mid-traversal from seeing a torn structure. MiniDB is a relational engine built from the page up in C++ — no storage or parsing libraries borrowed — specifically to force that understanding.
