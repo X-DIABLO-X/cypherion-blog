@@ -12,13 +12,13 @@ import Image from "next/image";
  */
 export default function Divider() {
   return (
-    <div className="pointer-events-none relative z-10 -mt-[9vw] -mb-[4vw] w-full select-none">
+    <div className="pointer-events-none relative z-0 -mt-[11vw] -mb-[5vw] w-full select-none">
       <Image
         src="/assets/splash-divider.webp"
         alt=""
         aria-hidden
         width={1536}
-        height={654}
+        height={411}
         sizes="100vw"
         className="h-auto w-full"
       />

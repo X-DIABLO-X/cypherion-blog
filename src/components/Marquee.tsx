@@ -12,7 +12,7 @@ export default function Marquee() {
   const row = [...marqueeWords, ...marqueeWords];
 
   return (
-    <div className="grain relative overflow-hidden border-y-2 border-ink bg-ink py-4 text-paper">
+    <div className="grain relative z-10 overflow-hidden border-y-2 border-ink bg-ink py-4 text-paper">
       <div className="speed-lines pointer-events-none absolute inset-0 opacity-40" />
       <div className="halftone pointer-events-none absolute inset-0 opacity-[0.05] invert" />
       <div className="marquee-track relative">
